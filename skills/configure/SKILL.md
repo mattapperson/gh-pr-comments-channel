@@ -4,17 +4,22 @@ Verify prerequisites and show the current channel status for the GitHub PR chann
 
 ## Steps
 
-1. **Check `gh` CLI**
+1. **Check GitHub authentication**
 
-   Run `gh --version`. If it fails, tell the user:
-   > GitHub CLI is not installed. Install it from https://cli.github.com/
+   First check for `gh` CLI:
+   - Run `gh --version`. If available, run `gh auth status` to verify authentication.
+   - If `gh` is authenticated, note: `gh CLI is available and authenticated (preferred mode).`
 
-2. **Check `gh` auth**
+   If `gh` is not available or not authenticated, check for token:
+   - Check if `GITHUB_TOKEN` or `GH_TOKEN` environment variable is set.
+   - If set, note: `Using GITHUB_TOKEN for API access.`
 
-   Run `gh auth status`. If it fails, tell the user:
-   > GitHub CLI is not authenticated. Run `gh auth login` to set up.
+   If neither is available:
+   > No GitHub authentication found. Either:
+   > - Install and authenticate the GitHub CLI: https://cli.github.com/
+   > - Set the GITHUB_TOKEN environment variable
 
-3. **Check `rtk` (optional)**
+2. **Check `rtk` (optional)**
 
    Run `rtk --version`. If it fails, note:
    > `rtk` is not installed (optional). CI failure logs will be truncated instead of compressed. Install for 60-90% token savings: `brew install rtk`
@@ -22,13 +27,13 @@ Verify prerequisites and show the current channel status for the GitHub PR chann
    If it succeeds, note:
    > `rtk` is installed. CI failure logs will be compressed automatically.
 
-4. **Check current branch PR**
+3. **Check current branch PR**
 
-   Run `gh pr view --json number,title,url,state`. If it fails:
+   Run `gh pr view --json number,title,url,state` (or use GitHub API if only token is available). If no PR:
    > No pull request found for the current branch. The channel will idle until a PR is created.
 
-   If it succeeds, display the PR number, title, state, and URL.
+   If PR found, display the PR number, title, state, and URL.
 
-5. **Summary**
+4. **Summary**
 
    Print a summary of all checks with pass/fail status and any next steps.

@@ -14,8 +14,12 @@ All events are wrapped in XML tags (`<pr-comment-context>`, `<ci-check-context>`
 ## Prerequisites
 
 - [Bun](https://bun.sh/) >= 1.0
-- [GitHub CLI (`gh`)](https://cli.github.com/) — installed and authenticated
+- **GitHub auth** — one of:
+  - [GitHub CLI (`gh`)](https://cli.github.com/) installed and authenticated (preferred)
+  - `GITHUB_TOKEN` or `GH_TOKEN` environment variable set
 - [rtk](https://github.com/rtk-ai/rtk) (optional) — compresses CI failure logs by 60-90%. Falls back to truncation if not installed.
+
+The channel auto-detects your auth method. When `gh` CLI is available it uses `gh api` for all calls. Otherwise it falls back to polling the GitHub REST API directly with your token.
 
 ## Installation
 
@@ -39,15 +43,18 @@ Run `/github-pr:configure` to verify prerequisites and check the current channel
 |----------|---------|-------------|
 | `POLL_INTERVAL_MS` | `30000` | Polling interval in milliseconds (minimum 5000) |
 | `GH_PR_CHANNEL_DEBUG` | `false` | Enable debug output to stderr |
+| `GITHUB_TOKEN` | — | GitHub personal access token (fallback when `gh` CLI is not available) |
+| `GH_TOKEN` | — | Alias for `GITHUB_TOKEN` |
 
 ## How It Works
 
 ### Startup
 
-1. Detects the PR associated with the current branch via `gh pr view`
-2. Extracts owner/repo via `gh repo view`
-3. Fetches all existing comments and CI check statuses (marked as initial load)
-4. Starts polling for new activity
+1. Resolves GitHub auth: tries `gh` CLI first, then `GITHUB_TOKEN`/`GH_TOKEN`, then `gh auth token`
+2. Detects owner/repo (via `gh repo view` or git remote URL parsing)
+3. Finds the PR for the current branch
+4. Fetches all existing comments and CI check statuses (marked as initial load)
+5. Starts polling for new activity
 
 ### PR Comments
 

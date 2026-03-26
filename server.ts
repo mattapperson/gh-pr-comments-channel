@@ -6,9 +6,10 @@ import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { $ } from 'zx';
 import { z } from 'zod';
 import { loadEnv } from './env.ts';
+import { createGitHubClient } from './github-api.ts';
+import type { GitHubClient } from './github-api.ts';
 import { detectPr } from './pr-detection.ts';
 import { fetchAllCommentList } from './comment-fetcher.ts';
 import { formatCommentContent, formatCiCheckContent } from './comment-formatter.ts';
@@ -18,8 +19,6 @@ import {
   fetchFailureLogs,
 } from './ci-checker.ts';
 import type { PrInfo, CiCheckState } from './types.ts';
-
-$.verbose = false;
 
 //#region Constants
 
@@ -93,6 +92,7 @@ const ReplyReviewBodySchema = z.object({
 //#region State
 
 type ChannelState = {
+  client: GitHubClient;
   pr: PrInfo;
   seenCommentIdSet: Set<number>;
   checkStateMap: Map<string, CiCheckState>;
@@ -120,21 +120,37 @@ async function main(): Promise<void> {
     },
   );
 
+  const client = await createGitHubClient();
+
+  if (!client) {
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+    pushEvent(
+      server,
+      '<pr-comment-context is_initial_load="true">\nNo GitHub authentication found. Either install gh CLI (https://cli.github.com/) or set GITHUB_TOKEN.\n</pr-comment-context>',
+      { is_initial_load: 'true' },
+    );
+    return;
+  }
+
+  currentClient = client;
   registerToolHandlers(server);
 
-  const detection = await detectPr();
+  const detection = await detectPr(client);
 
   if (!detection.found) {
     const transport = new StdioServerTransport();
     await server.connect(transport);
-
-    pushEvent(server, `<pr-comment-context is_initial_load="true">\n${detection.reason}\n</pr-comment-context>`, {
-      is_initial_load: 'true',
-    });
+    pushEvent(
+      server,
+      `<pr-comment-context is_initial_load="true">\n${detection.reason}\n</pr-comment-context>`,
+      { is_initial_load: 'true' },
+    );
     return;
   }
 
   const state: ChannelState = {
+    client,
     pr: detection.pr,
     seenCommentIdSet: new Set(),
     checkStateMap: new Map(),
@@ -154,6 +170,9 @@ async function main(): Promise<void> {
 //#endregion
 
 //#region Tool Handlers
+
+let currentClient: GitHubClient | null = null;
+let currentPr: PrInfo | null = null;
 
 function registerToolHandlers(server: Server): void {
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -177,69 +196,53 @@ function registerToolHandlers(server: Server): void {
   });
 }
 
-let currentPr: PrInfo | null = null;
+type ToolResult = { content: Array<{ type: 'text'; text: string }>; isError?: boolean };
 
 async function handlePrReply(
   args: Record<string, unknown> | undefined,
-): Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }> {
-  if (!currentPr) {
-    return {
-      content: [{ type: 'text', text: 'No PR detected.' }],
-      isError: true,
-    };
+): Promise<ToolResult> {
+  if (!currentClient || !currentPr) {
+    return { content: [{ type: 'text', text: 'No PR detected.' }], isError: true };
   }
 
   const parsed = ReplyPrBodySchema.safeParse(args);
   if (!parsed.success) {
-    return {
-      content: [{ type: 'text', text: `Invalid input: ${parsed.error.message}` }],
-      isError: true,
-    };
+    return { content: [{ type: 'text', text: `Invalid input: ${parsed.error.message}` }], isError: true };
   }
 
   try {
-    await $`gh pr comment ${currentPr.number} --body ${parsed.data.body}`;
-    return {
-      content: [{ type: 'text', text: 'Comment posted successfully.' }],
-    };
+    await currentClient.post(
+      `repos/${currentPr.owner}/${currentPr.repo}/issues/${currentPr.number}/comments`,
+      { body: parsed.data.body },
+    );
+    return { content: [{ type: 'text', text: 'Comment posted successfully.' }] };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return {
-      content: [{ type: 'text', text: `Failed to post comment: ${message}` }],
-      isError: true,
-    };
+    return { content: [{ type: 'text', text: `Failed to post comment: ${message}` }], isError: true };
   }
 }
 
 async function handleReviewReply(
   args: Record<string, unknown> | undefined,
-): Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }> {
-  if (!currentPr) {
-    return {
-      content: [{ type: 'text', text: 'No PR detected.' }],
-      isError: true,
-    };
+): Promise<ToolResult> {
+  if (!currentClient || !currentPr) {
+    return { content: [{ type: 'text', text: 'No PR detected.' }], isError: true };
   }
 
   const parsed = ReplyReviewBodySchema.safeParse(args);
   if (!parsed.success) {
-    return {
-      content: [{ type: 'text', text: `Invalid input: ${parsed.error.message}` }],
-      isError: true,
-    };
+    return { content: [{ type: 'text', text: `Invalid input: ${parsed.error.message}` }], isError: true };
   }
 
   try {
-    await $`gh api repos/${currentPr.owner}/${currentPr.repo}/pulls/${currentPr.number}/comments/${parsed.data.comment_id}/replies -f body=${parsed.data.body}`;
-    return {
-      content: [{ type: 'text', text: 'Reply posted successfully.' }],
-    };
+    await currentClient.post(
+      `repos/${currentPr.owner}/${currentPr.repo}/pulls/${currentPr.number}/comments/${parsed.data.comment_id}/replies`,
+      { body: parsed.data.body },
+    );
+    return { content: [{ type: 'text', text: 'Reply posted successfully.' }] };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return {
-      content: [{ type: 'text', text: `Failed to post reply: ${message}` }],
-      isError: true,
-    };
+    return { content: [{ type: 'text', text: `Failed to post reply: ${message}` }], isError: true };
   }
 }
 
@@ -254,8 +257,8 @@ async function loadInitialState(
   currentPr = state.pr;
 
   const [commentList, checkList] = await Promise.all([
-    fetchAllCommentList(state.pr),
-    fetchCheckList(state.pr),
+    fetchAllCommentList(state.client, state.pr),
+    fetchCheckList(state.client, state.pr),
   ]);
 
   for (const comment of commentList) {
@@ -270,7 +273,7 @@ async function loadInitialState(
     if (check.conclusion) {
       const logs =
         check.conclusion === 'failure'
-          ? await fetchFailureLogs(extractRunId(check.detailsUrl))
+          ? await fetchFailureLogs(state.client, state.pr, extractRunId(check.detailsUrl))
           : null;
       const { content, meta } = formatCiCheckContent(check, logs, true);
       pushEvent(server, content, meta);
@@ -294,19 +297,16 @@ function startPolling(server: Server, state: ChannelState): void {
       state.backoffMultiplier = Math.min(state.backoffMultiplier * 2, 10);
     }
 
-    const nextInterval =
-      state.pollIntervalMs * state.backoffMultiplier;
+    const nextInterval = state.pollIntervalMs * state.backoffMultiplier;
     state.pollTimerId = setTimeout(poll, nextInterval);
   };
 
   state.pollTimerId = setTimeout(poll, state.pollIntervalMs);
 }
 
-async function pollComments(
-  server: Server,
-  state: ChannelState,
-): Promise<void> {
+async function pollComments(server: Server, state: ChannelState): Promise<void> {
   const commentList = await fetchAllCommentList(
+    state.client,
     state.pr,
     state.lastPollTimestamp ?? undefined,
   );
@@ -323,20 +323,14 @@ async function pollComments(
   state.lastPollTimestamp = new Date().toISOString();
 }
 
-async function pollCiChecks(
-  server: Server,
-  state: ChannelState,
-): Promise<void> {
-  const checkList = await fetchCheckList(state.pr);
-  const transitionList = diffCheckStateList(
-    state.checkStateMap,
-    checkList,
-  );
+async function pollCiChecks(server: Server, state: ChannelState): Promise<void> {
+  const checkList = await fetchCheckList(state.client, state.pr);
+  const transitionList = diffCheckStateList(state.checkStateMap, checkList);
 
   for (const { check } of transitionList) {
     const logs =
       check.conclusion === 'failure'
-        ? await fetchFailureLogs(extractRunId(check.detailsUrl))
+        ? await fetchFailureLogs(state.client, state.pr, extractRunId(check.detailsUrl))
         : null;
     const { content, meta } = formatCiCheckContent(check, logs, false);
     pushEvent(server, content, meta);

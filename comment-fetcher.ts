@@ -1,24 +1,21 @@
-import { $ } from 'zx';
 import {
   GhIssueCommentListSchema,
   GhReviewCommentListSchema,
   CommentType,
 } from './types.ts';
 import type { PrInfo, NormalizedComment } from './types.ts';
-
-$.verbose = false;
+import type { GitHubClient } from './github-api.ts';
 
 async function fetchPrLevelCommentList(
+  client: GitHubClient,
   pr: PrInfo,
   since?: string,
 ): Promise<NormalizedComment[]> {
-  const url = since
-    ? `repos/${pr.owner}/${pr.repo}/issues/${pr.number}/comments?since=${since}`
-    : `repos/${pr.owner}/${pr.repo}/issues/${pr.number}/comments`;
+  const params = since ? `?since=${since}` : '';
+  const path = `repos/${pr.owner}/${pr.repo}/issues/${pr.number}/comments${params}`;
 
   try {
-    const result = await $`gh api ${url} --paginate`;
-    const raw = JSON.parse(result.stdout) as unknown;
+    const raw = await client.get(path);
     const commentList = GhIssueCommentListSchema.parse(raw);
 
     return commentList.map(
@@ -45,16 +42,15 @@ async function fetchPrLevelCommentList(
 }
 
 async function fetchReviewCommentList(
+  client: GitHubClient,
   pr: PrInfo,
   since?: string,
 ): Promise<NormalizedComment[]> {
-  const url = since
-    ? `repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/comments?since=${since}`
-    : `repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/comments`;
+  const params = since ? `?since=${since}` : '';
+  const path = `repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/comments${params}`;
 
   try {
-    const result = await $`gh api ${url} --paginate`;
-    const raw = JSON.parse(result.stdout) as unknown;
+    const raw = await client.get(path);
     const commentList = GhReviewCommentListSchema.parse(raw);
 
     return commentList.map(
@@ -81,12 +77,13 @@ async function fetchReviewCommentList(
 }
 
 async function fetchAllCommentList(
+  client: GitHubClient,
   pr: PrInfo,
   since?: string,
 ): Promise<NormalizedComment[]> {
   const [prCommentList, reviewCommentList] = await Promise.all([
-    fetchPrLevelCommentList(pr, since),
-    fetchReviewCommentList(pr, since),
+    fetchPrLevelCommentList(client, pr, since),
+    fetchReviewCommentList(client, pr, since),
   ]);
 
   const all = [...prCommentList, ...reviewCommentList];
@@ -97,4 +94,4 @@ async function fetchAllCommentList(
   return all;
 }
 
-export { fetchAllCommentList, fetchPrLevelCommentList, fetchReviewCommentList };
+export { fetchAllCommentList };
