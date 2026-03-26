@@ -1,39 +1,91 @@
-# /github-pr:configure
+---
+name: "github-pr:configure"
+description: "This skill should be used when the user wants to verify prerequisites, check authentication status, or troubleshoot the GitHub PR channel plugin. Triggers on: /github-pr:configure, 'check github pr channel', 'configure pr channel', 'why isn't the pr channel working'."
+---
 
-Verify prerequisites and show the current channel status for the GitHub PR channel.
+# GitHub PR Channel Configuration
 
-## Steps
+Verify prerequisites and display the current status of the GitHub PR channel plugin. This plugin surfaces PR comments, inline code reviews, and CI check results as ambient context in Claude Code sessions.
 
-1. **Check GitHub authentication**
+## Procedure
 
-   First check for `gh` CLI:
-   - Run `gh --version`. If available, run `gh auth status` to verify authentication.
-   - If `gh` is authenticated, note: `gh CLI is available and authenticated (preferred mode).`
+Run each check below in order. Collect all results, then print a single summary table at the end.
 
-   If `gh` is not available or not authenticated, check for token:
-   - Check if `GITHUB_TOKEN` or `GH_TOKEN` environment variable is set.
-   - If set, note: `Using GITHUB_TOKEN for API access.`
+### 1. GitHub Authentication
 
-   If neither is available:
-   > No GitHub authentication found. Either:
-   > - Install and authenticate the GitHub CLI: https://cli.github.com/
-   > - Set the GITHUB_TOKEN environment variable
+The channel supports two auth modes. Check in priority order:
 
-2. **Check `rtk` (optional)**
+**Check gh CLI (preferred):**
 
-   Run `rtk --version`. If it fails, note:
-   > `rtk` is not installed (optional). CI failure logs will be truncated instead of compressed. Install for 60-90% token savings: `brew install rtk`
+```bash
+gh --version
+```
 
-   If it succeeds, note:
-   > `rtk` is installed. CI failure logs will be compressed automatically.
+If available, verify authentication:
 
-3. **Check current branch PR**
+```bash
+gh auth status
+```
 
-   Run `gh pr view --json number,title,url,state` (or use GitHub API if only token is available). If no PR:
-   > No pull request found for the current branch. The channel will idle until a PR is created.
+If `gh` is installed and authenticated, record: `gh CLI — authenticated (preferred mode)`.
 
-   If PR found, display the PR number, title, state, and URL.
+**Check token fallback:**
 
-4. **Summary**
+If `gh` is unavailable or unauthenticated, check for a token:
 
-   Print a summary of all checks with pass/fail status and any next steps.
+```bash
+echo "${GITHUB_TOKEN:-${GH_TOKEN:-NOT_SET}}"
+```
+
+If a token is set, record: `GITHUB_TOKEN — configured (fallback mode)`.
+
+If neither auth method is available, record a failure and provide remediation:
+
+- Install GitHub CLI: https://cli.github.com/ then run `gh auth login`
+- Or set `GITHUB_TOKEN` environment variable in the MCP server config
+
+### 2. rtk (Optional)
+
+```bash
+rtk --version
+```
+
+If available, record: `rtk — installed (CI logs will be compressed)`.
+
+If unavailable, record: `rtk — not installed (CI logs will be truncated to ~2000 chars). Install for 60-90% token savings: brew install rtk`
+
+### 3. Current Branch PR
+
+Detect the PR for the current branch. Use `gh` if available, otherwise parse git remote and query the API.
+
+With gh CLI:
+
+```bash
+gh pr view --json number,title,url,state
+```
+
+Without gh CLI (token mode), determine owner/repo from git remote:
+
+```bash
+git remote get-url origin
+```
+
+Then query `GET /repos/{owner}/{repo}/pulls?head={owner}:{branch}&state=open`.
+
+If a PR is found, record its number, title, state, and URL.
+
+If no PR is found, record: `No PR found for current branch. The channel will idle until a PR exists.`
+
+### 4. Summary
+
+Print results as a status table:
+
+```
+GitHub PR Channel Status
+========================
+Auth:   [pass/fail] — [mode details]
+rtk:    [pass/skip] — [status]
+PR:     [found/none] — [PR #number: title (state)]
+
+Next steps: [any remediation needed, or "All prerequisites met."]
+```
