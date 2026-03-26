@@ -14,7 +14,7 @@ All events are wrapped in XML tags (`<pr-comment-context>`, `<ci-check-context>`
 ## Prerequisites
 
 - [GitHub CLI (`gh`)](https://cli.github.com/) — installed and authenticated
-- Node.js >= 20
+- [Bun](https://bun.sh/) >= 1.0
 - [rtk](https://github.com/rtk-ai/rtk) (optional) — compresses CI failure logs by 60-90%. Falls back to truncation if not installed.
 
 ## Installation
@@ -22,8 +22,8 @@ All events are wrapped in XML tags (`<pr-comment-context>`, `<ci-check-context>`
 ```bash
 git clone https://github.com/mattapperson/gh-pr-comments-channel.git
 cd gh-pr-comments-channel
-pnpm install
-pnpm build
+bun install
+bun run build
 ```
 
 ## Configuration
@@ -45,15 +45,15 @@ Add to your `.mcp.json` (per-project) or `~/.claude.json` (global):
 }
 ```
 
-Or run directly with `tsx` during development:
+Or run directly with `bun` during development:
 
 ```json
 {
   "mcpServers": {
     "gh-pr-comments": {
       "type": "stdio",
-      "command": "npx",
-      "args": ["tsx", "/path/to/gh-pr-comments-channel/src/channel.ts"],
+      "command": "bun",
+      "args": ["run", "/path/to/gh-pr-comments-channel/src/channel.ts"],
       "env": {
         "POLL_INTERVAL_MS": "30000"
       }

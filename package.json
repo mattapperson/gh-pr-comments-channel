@@ -9,7 +9,7 @@
   "main": "./dist/channel.js",
   "scripts": {
     "build": "tsc",
-    "dev": "tsx src/channel.ts",
+    "dev": "bun run src/channel.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -18,8 +18,7 @@
     "zx": "8.5.4"
   },
   "devDependencies": {
-    "@types/node": "22.15.29",
-    "tsx": "4.19.4",
+    "@types/bun": "1.2.18",
     "typescript": "5.8.3"
   },
   "engines": {
